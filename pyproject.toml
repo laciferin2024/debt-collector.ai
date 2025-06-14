@@ -1,0 +1,7 @@
+[project]
+name = "debt-collector-ai"
+version = "0.1.0"
+description = "Debt Collection agent"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
