@@ -1,9 +1,10 @@
-"""Prompts for the debt collection workflow using lambdaprompt."""
-from lambdaprompt import Prompt
+"""GPT3Prompts for the debt collection workflow using lambdaprompt."""
+
+from lambdaprompt import GPT3Prompt
 from typing import Dict, Any
 
 # System message for the LLM
-system_prompt = Prompt(
+system_prompt = GPT3Prompt(
     """You are an empathetic debt collection agent for Riverline Bank. 
 - Maintain professionalism while showing understanding of the customer's situation.
 - Use active listening and rephrase customer concerns to show understanding.
@@ -12,7 +13,7 @@ system_prompt = Prompt(
 )
 
 # Identity verification prompt
-verify_identity = Prompt(
+verify_identity = GPT3Prompt(
     """Extract the following information from the customer's response:
     - Last 4 digits of account (as "account")
     - Date of birth in MM/DD/YYYY format (as "dob")
@@ -21,18 +22,18 @@ verify_identity = Prompt(
     If any information is missing, ask follow-up questions to collect it.
     
     Customer response: {{response}}""",
-    output_parser=dict
+    output_parser=dict,
 )
 
 # Payment options
 PAYMENT_OPTIONS = {
     "full": "Pay in full today",
     "installment": "Set up an installment plan",
-    "deferment": "Discuss payment deferment options"
+    "deferment": "Discuss payment deferment options",
 }
 
 # Payment discussion prompt
-payment_discussion = Prompt(
+payment_discussion = GPT3Prompt(
     """You are a debt collection agent discussing payment options with a customer.
     Present the payment options professionally and handle their response with empathy.
     
@@ -48,7 +49,7 @@ payment_discussion = Prompt(
 )
 
 # Resolution confirmation prompt
-resolution_confirmation = Prompt(
+resolution_confirmation = GPT3Prompt(
     """Summarize the agreed-upon resolution and next steps for the customer.
     
     Include:
@@ -61,34 +62,38 @@ resolution_confirmation = Prompt(
 )
 
 # Compliance warning prompt
-compliance_warning = Prompt(
+compliance_warning = GPT3Prompt(
     "This call is being recorded for quality and compliance purposes. "
     "By continuing this conversation, you consent to the recording."
 )
 
 # Transfer to agent prompt
-transfer_to_agent = Prompt(
+transfer_to_agent = GPT3Prompt(
     "I understand you'd like to speak with a representative. "
     "Please hold while I transfer you to an available agent who can assist you further."
 )
 
 # Technical issue prompt
-technical_issue = Prompt(
+technical_issue = GPT3Prompt(
     "We're experiencing technical difficulties. "
     "Please call us back at [support number] or try again later."
 )
+
 
 # Helper function to get system message
 def get_system_message() -> str:
     return str(system_prompt)
 
+
 # Helper function to verify identity
 async def verify_customer_identity(response: str) -> Dict[str, Any]:
     return await verify_identity(response=response)
 
+
 # Helper function for payment discussion
 async def discuss_payment(concern: str = None) -> str:
     return await payment_discussion(options=PAYMENT_OPTIONS, concern=concern)
+
 
 # Helper function for resolution confirmation
 async def confirm_resolution(details: str) -> str:
