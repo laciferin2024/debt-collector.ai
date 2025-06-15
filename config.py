@@ -2,10 +2,11 @@
 Configuration settings for the Debt Collection Agent.
 All sensitive data should be loaded from environment variables.
 """
+
 import os
 from typing import Optional
 
-from dotenv import  load_dotenv
+from dotenv import load_dotenv
 
 load_dotenv()
 # Twilio Configuration
@@ -26,9 +27,9 @@ OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 CARTESIA_API_KEY: Optional[str] = os.getenv("CARTESIA_API_KEY")
 CARTESIA_VOICE: str = os.getenv("CARTESIA_VOICE", "en-US-Standard-D")
 
-LIVEKIT_API_KEY= os.getenv("LIVEKIT_API_KEY")
-LIVEKIT_URL= os.getenv("LIVEKIT_URL")
-LIVEKIT_API_SECRET= os.getenv("LIVEKIT_API_SECRET")
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_URL = os.getenv("LIVEKIT_URL")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 
 # Application Settings
 RECORDINGS_DIR: str = os.getenv("RECORDINGS_DIR", "recordings")
@@ -36,6 +37,7 @@ TRANSCRIPTS_DIR: str = os.getenv("TRANSCRIPTS_DIR", "transcripts")
 DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
 
+COMPLIANCE_REGIONS = os.getenv("COMPLIANCE_REGIONS", "US").split(",")
 # Validate required configurations
 REQUIRED_KEYS = [
     ("TWILIO_ACCOUNT_SID", TWILIO_ACCOUNT_SID),
