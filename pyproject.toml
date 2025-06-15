@@ -19,3 +19,6 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 exclude = ["recordings*", "transcripts*", "tests*", "docs*"]
+
+[dependency-groups]
+dev = ["ipykernel>=6.29.5", "pip>=25.1.1"]
