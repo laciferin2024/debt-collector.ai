@@ -22,6 +22,14 @@ from livekit.api import LiveKitAPI
 # SIPService is accessed through livekit_api.sip
 from livekit.plugins import noise_cancellation
 
+# TTS using Cartesia
+try:
+    from livekit.plugins import cartesia
+    TTS_AVAILABLE = True
+except ImportError:
+    TTS_AVAILABLE = False
+    print("Warning: Cartesia TTS plugin not available. Speech synthesis will be disabled.")
+
 
 # Configuration
 from config import (
@@ -98,7 +106,7 @@ async def debt_collection_workflow(session: AgentSession):
             return
 
         # Play compliance warning
-        await session.say(ai_compliance_warning())
+        await session.say(ai_compliance_warning)
 
         # Start the conversation
         await session.say(
@@ -115,7 +123,7 @@ async def debt_collection_workflow(session: AgentSession):
 
     except Exception as e:
         logger.error(f"Workflow error: {e}")
-        await session.say(await ai_technical_issue_disclaimer())
+        await session.say(ai_technical_issue_disclaimer)
         raise
 
 
@@ -218,12 +226,20 @@ async def entrypoint(ctx: agents.JobContext):
         else:
             logger.info("Recording not supported in this version of LiveKit")
 
-        # Start agent session with the debt collection agent
-        agent = Agent(
-            instructions="You are a professional debt collection agent for Riverline Bank. "
+        # Configure agent with optional TTS
+        agent_config = {
+            "instructions": "You are a professional debt collection agent for Riverline Bank. "
             "Your goal is to help customers resolve their outstanding balances "
-            "while maintaining a professional and empathetic tone.",
-        )
+            "while maintaining a professional and empathetic tone."
+        }
+        
+        # Configure Cartesia TTS if available
+        if TTS_AVAILABLE:
+            tts_plugin = cartesia.TTS(model="sonic-english")
+            agent_config["tts"] = tts_plugin
+        
+        # Start agent session with the debt collection agent
+        agent = Agent(**agent_config)
 
         # Start the session with the agent
         await session.start(
