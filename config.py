@@ -26,10 +26,15 @@ OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 CARTESIA_API_KEY: Optional[str] = os.getenv("CARTESIA_API_KEY")
 CARTESIA_VOICE: str = os.getenv("CARTESIA_VOICE", "en-US-Standard-D")
 
+LIVEKIT_API_KEY= os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_URL= os.getenv("LIVEKIT_URL")
+LIVEKIT_API_SECRET= os.getenv("LIVEKIT_API_SECRET")
+
 # Application Settings
 RECORDINGS_DIR: str = os.getenv("RECORDINGS_DIR", "recordings")
 TRANSCRIPTS_DIR: str = os.getenv("TRANSCRIPTS_DIR", "transcripts")
 DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+
 
 # Validate required configurations
 REQUIRED_KEYS = [
@@ -39,6 +44,9 @@ REQUIRED_KEYS = [
     ("DEEPGRAM_API_KEY", DEEPGRAM_API_KEY),
     ("OPENAI_API_KEY", OPENAI_API_KEY),
     ("CARTESIA_API_KEY", CARTESIA_API_KEY),
+    ("LIVEKIT_API_KEY", LIVEKIT_API_KEY),
+    ("LIVEKIT_URL", LIVEKIT_URL),
+    ("LIVEKIT_API_SECRET", LIVEKIT_API_SECRET),
 ]
 
 for key, value in REQUIRED_KEYS:
