@@ -1,17 +1,16 @@
 import json
 import logging
+import os
 import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict
 
 # Import prompts
-from prompts.debt_collection import (
-    ai_verify_customer_identity,
+from prompts.debt_collection.prompts import (
     ai_parse_payment_discussion,
     ai_resolution_confirmation,
     ai_compliance_warning,
-    ai_transfer_to_agent,
     ai_technical_issue_disclaimer,
 )
 
@@ -249,68 +248,31 @@ def _convert_to_serializable(obj):
 
 
 async def _save_transcript(session: AgentSession):
-    """Save conversation transcript"""
+    """Save conversation transcript using LiveKit's built-in functionality"""
     try:
+        # Ensure transcripts directory exists
+        os.makedirs("transcripts", exist_ok=True)
+        
+        # Generate timestamp for filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        transcript_path = Path(TRANSCRIPTS_DIR)
-        transcript_path.mkdir(parents=True, exist_ok=True)
-        transcript_path = transcript_path / f"transcript_{timestamp}.json"
-
-        # Safely get participants if available
-        participants = []
-        try:
-            if (
-                hasattr(session, "ctx")
-                and hasattr(session.ctx, "room")
-                and hasattr(session.ctx.room, "participants")
-            ):
-                participants = [
-                    str(p.identity) for p in session.ctx.room.participants.values()
-                ]
-        except Exception as e:
-            logger.warning(f"Could not get participants: {e}")
-
-        # Safely get metadata if available
-        metadata = {}
-        try:
-            if (
-                hasattr(session, "ctx")
-                and hasattr(session.ctx, "room")
-                and hasattr(session.ctx.room, "metadata")
-            ):
-                metadata = _convert_to_serializable(session.ctx.room.metadata)
-        except Exception as e:
-            logger.warning(f"Could not get room metadata: {e}")
-
-        # Safely get message history if available
-        history = []
-        try:
-            if hasattr(session, "history") and hasattr(session.history, "messages"):
-                history = [
-                    _convert_to_serializable(msg.to_dict())
-                    for msg in session.history.messages
-                ]
-        except Exception as e:
-            logger.warning(f"Could not get message history: {e}")
-
-        transcript = {
-            "participants": participants,
-            "history": history,
-            "metadata": metadata,
-            "timestamp": timestamp,
-            "session_id": str(getattr(session, "sid", "unknown")),
-            "session_type": str(type(session).__name__),
-        }
-
-        # Ensure all data is serializable
-        serializable_transcript = _convert_to_serializable(transcript)
-
-        with open(transcript_path, "w") as f:
-            json.dump(serializable_transcript, f, indent=2, default=str)
+        transcript_path = f"transcripts/transcript_{timestamp}.json"
+        
+        # Get the conversation history from the session
+        if not hasattr(session, 'history'):
+            logger.warning("Session has no history attribute")
+            return
+            
+        # Convert history to a serializable format
+        transcript_data = session.history.to_dict()
+        
+        # Save to file
+        with open(transcript_path, 'w') as f:
+            json.dump(transcript_data, f, indent=2)
+            
         logger.info(f"Transcript saved to {transcript_path}")
-
+        
     except Exception as e:
-        logger.error(f"Transcript save failed: {e}")
+        logger.error(f"Failed to save transcript: {e}", exc_info=True)
         # Don't raise the exception to prevent workflow failure due to transcript saving issues
         logger.debug("Transcript error details:", exc_info=True)
 
