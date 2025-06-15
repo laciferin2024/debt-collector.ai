@@ -25,10 +25,13 @@ from livekit.plugins import noise_cancellation
 # TTS using Cartesia
 try:
     from livekit.plugins import cartesia
+
     TTS_AVAILABLE = True
 except ImportError:
     TTS_AVAILABLE = False
-    print("Warning: Cartesia TTS plugin not available. Speech synthesis will be disabled.")
+    print(
+        "Warning: Cartesia TTS plugin not available. Speech synthesis will be disabled."
+    )
 
 
 # Configuration
@@ -132,9 +135,8 @@ async def _verify_identity(session: AgentSession) -> Dict:
     context = {"verified": False}
     await session.say("For security purposes, could you please verify your identity?")
 
-    # In a real implementation, you would collect and verify identity information
     # For this example, we'll simulate a successful verification
-    identity = ai_verify_customer_identity("")
+    identity = ai_verify_customer_identity("")  # todo:
 
     if identity:
         await session.say("Thank you for verifying your identity.")
@@ -160,25 +162,87 @@ async def _handle_resolution(session: AgentSession, context: Dict):
     await _save_transcript(session)
 
 
+def _convert_to_serializable(obj):
+    """Recursively convert objects to a JSON-serializable format."""
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_convert_to_serializable(item) for item in obj]
+    elif hasattr(obj, "__dict__"):
+        # Convert objects with __dict__ to dict
+        return _convert_to_serializable(obj.__dict__)
+    else:
+        # Fallback: convert to string
+        return str(obj)
+
+
 async def _save_transcript(session: AgentSession):
     """Save conversation transcript"""
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        transcript_path = Path(TRANSCRIPTS_DIR) / f"transcript_{timestamp}.json"
+        transcript_path = Path(TRANSCRIPTS_DIR)
+        transcript_path.mkdir(parents=True, exist_ok=True)
+        transcript_path = transcript_path / f"transcript_{timestamp}.json"
+
+        # Safely get participants if available
+        participants = []
+        try:
+            if (
+                hasattr(session, "ctx")
+                and hasattr(session.ctx, "room")
+                and hasattr(session.ctx.room, "participants")
+            ):
+                participants = [
+                    str(p.identity) for p in session.ctx.room.participants.values()
+                ]
+        except Exception as e:
+            logger.warning(f"Could not get participants: {e}")
+
+        # Safely get metadata if available
+        metadata = {}
+        try:
+            if (
+                hasattr(session, "ctx")
+                and hasattr(session.ctx, "room")
+                and hasattr(session.ctx.room, "metadata")
+            ):
+                metadata = _convert_to_serializable(session.ctx.room.metadata)
+        except Exception as e:
+            logger.warning(f"Could not get room metadata: {e}")
+
+        # Safely get message history if available
+        history = []
+        try:
+            if hasattr(session, "history") and hasattr(session.history, "messages"):
+                history = [
+                    _convert_to_serializable(msg.to_dict())
+                    for msg in session.history.messages
+                ]
+        except Exception as e:
+            logger.warning(f"Could not get message history: {e}")
 
         transcript = {
-            "participants": [
-                p.identity for p in session.ctx.room.participants.values()
-            ],
-            "history": [msg.to_dict() for msg in session.history.messages],
-            "metadata": session.ctx.room.metadata,
+            "participants": participants,
+            "history": history,
+            "metadata": metadata,
+            "timestamp": timestamp,
+            "session_id": str(getattr(session, "sid", "unknown")),
+            "session_type": str(type(session).__name__),
         }
 
+        # Ensure all data is serializable
+        serializable_transcript = _convert_to_serializable(transcript)
+
         with open(transcript_path, "w") as f:
-            json.dump(transcript, f, indent=2)
+            json.dump(serializable_transcript, f, indent=2, default=str)
+        logger.info(f"Transcript saved to {transcript_path}")
 
     except Exception as e:
         logger.error(f"Transcript save failed: {e}")
+        # Don't raise the exception to prevent workflow failure due to transcript saving issues
+        logger.debug("Transcript error details:", exc_info=True)
 
 
 async def _check_compliance(room: rtc.Room) -> bool:
@@ -232,12 +296,12 @@ async def entrypoint(ctx: agents.JobContext):
             "Your goal is to help customers resolve their outstanding balances "
             "while maintaining a professional and empathetic tone."
         }
-        
+
         # Configure Cartesia TTS if available
         if TTS_AVAILABLE:
             tts_plugin = cartesia.TTS(model="sonic-english")
             agent_config["tts"] = tts_plugin
-        
+
         # Start agent session with the debt collection agent
         agent = Agent(**agent_config)
 
