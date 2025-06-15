@@ -5,6 +5,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict
 
+# Import prompts
+from prompts.debt_collection import (
+    SYSTEM_MESSAGE,
+    VERIFY_IDENTITY,
+    PAYMENT_OPTIONS,
+    PAYMENT_DISCUSSION,
+    RESOLUTION_CONFIRMATION,
+    TECHNICAL_ISSUE,
+)
+
 from livekit import agents, rtc, api
 from livekit.agents import AgentSession, RoomInputOptions
 from livekit.plugins import (
@@ -80,12 +90,10 @@ async def debt_collection_workflow(session: AgentSession):
             await session.say("This call cannot proceed due to regional regulations.")
             return
 
-        # Configure LLM for empathetic responses
+        # Configure LLM with system message
         await session.llm.configure(
             temperature=0.3,
-            system_message="""Respond with empathy while maintaining professionalism.
-            Use conversational repair strategies for misunderstandings.
-            Escalate when detecting high emotional stress.""",
+            system_message=SYSTEM_MESSAGE,
         )
 
         # Conversation steps
@@ -98,9 +106,7 @@ async def debt_collection_workflow(session: AgentSession):
 
     except Exception as e:
         logger.error(f"Workflow error: {e}")
-        await session.say(
-            "We're experiencing technical difficulties. Please call back later."
-        )
+        await session.say(TECHNICAL_ISSUE)
         raise
 
 
@@ -113,10 +119,7 @@ async def _verify_identity(session: AgentSession) -> Dict:
 
     # Collect verification info
     responses = await session.llm.extract(
-        instructions="""Extract:
-        - Last 4 digits of account
-        - Date of birth (MM/DD/YYYY)
-        - Last payment amount"""
+        instructions=VERIFY_IDENTITY
     )
 
     if all(k in responses for k in ["account", "dob", "amount"]):
@@ -130,15 +133,8 @@ async def _verify_identity(session: AgentSession) -> Dict:
 
 async def _discuss_payment(session: AgentSession, context: Dict):
     """Payment discussion logic"""
-    options = {
-        "full": "Pay in full today",
-        "installment": "Set up installment plan",
-        "deferment": "Discuss payment deferment",
-    }
-
     response = await session.llm.generate(
-        prompt=f"""Present options: {options}. 
-        Handle objections professionally."""
+        prompt=PAYMENT_DISCUSSION.format(options=PAYMENT_OPTIONS)
     )
 
     await session.say(response)
@@ -146,7 +142,7 @@ async def _discuss_payment(session: AgentSession, context: Dict):
 
 async def _handle_resolution(session: AgentSession, context: Dict):
     """Final resolution handling"""
-    response = await session.llm.generate(prompt="Confirm resolution and next steps.")
+    response = await session.llm.generate(prompt=RESOLUTION_CONFIRMATION)
 
     await session.say(response)
     await _save_transcript(session)
