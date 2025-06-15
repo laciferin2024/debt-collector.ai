@@ -7,12 +7,12 @@ from typing import Optional, Dict
 
 # Import prompts
 from prompts.debt_collection import (
-    SYSTEM_MESSAGE,
-    VERIFY_IDENTITY,
-    PAYMENT_OPTIONS,
-    PAYMENT_DISCUSSION,
-    RESOLUTION_CONFIRMATION,
-    TECHNICAL_ISSUE,
+    get_system_message,
+    verify_customer_identity,
+    payment_discussion,
+    confirm_resolution,
+    technical_issue,
+    compliance_warning
 )
 
 from livekit import agents, rtc, api
@@ -93,8 +93,11 @@ async def debt_collection_workflow(session: AgentSession):
         # Configure LLM with system message
         await session.llm.configure(
             temperature=0.3,
-            system_message=SYSTEM_MESSAGE,
+            system_message=get_system_message(),
         )
+        
+        # Play compliance warning
+        await session.say(await compliance_warning())
 
         # Conversation steps
         context = await _verify_identity(session)
@@ -106,7 +109,7 @@ async def debt_collection_workflow(session: AgentSession):
 
     except Exception as e:
         logger.error(f"Workflow error: {e}")
-        await session.say(TECHNICAL_ISSUE)
+        await session.say(await technical_issue())
         raise
 
 
@@ -118,9 +121,8 @@ async def _verify_identity(session: AgentSession) -> Dict:
     )
 
     # Collect verification info
-    responses = await session.llm.extract(
-        instructions=VERIFY_IDENTITY
-    )
+    verification_response = await session.llm.generate("Please provide your verification details.")
+    responses = await verify_customer_identity(verification_response)
 
     if all(k in responses for k in ["account", "dob", "amount"]):
         context["verified"] = True
@@ -133,16 +135,14 @@ async def _verify_identity(session: AgentSession) -> Dict:
 
 async def _discuss_payment(session: AgentSession, context: Dict):
     """Payment discussion logic"""
-    response = await session.llm.generate(
-        prompt=PAYMENT_DISCUSSION.format(options=PAYMENT_OPTIONS)
-    )
+    response = await payment_discussion()
 
     await session.say(response)
 
 
 async def _handle_resolution(session: AgentSession, context: Dict):
     """Final resolution handling"""
-    response = await session.llm.generate(prompt=RESOLUTION_CONFIRMATION)
+    response = await confirm_resolution("")  # Pass empty string as we don't have details yet
 
     await session.say(response)
     await _save_transcript(session)
