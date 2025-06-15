@@ -9,3 +9,6 @@ set export
 
 python *ARGS:
   python3 {{ARGS}}
+
+run *ARGS:
+  uv run main.py 

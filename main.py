@@ -1,8 +1,17 @@
+import asyncio
+import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
+# Load environment variables first
+load_dotenv()
+
+# Now import other dependencies
 from livekit import agents, api
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.plugins import (
@@ -13,10 +22,8 @@ from livekit.plugins import (
     silero
 )
 from twilio.rest import Client
-import os
-import asyncio
-import json
 
+# Import config after environment variables are loaded
 from config import *
 
 # Configure logging
