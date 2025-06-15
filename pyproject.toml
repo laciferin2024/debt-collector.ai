@@ -10,5 +10,8 @@ dependencies = [
     "livekit-plugins-cartesia~=1.0",
     "livekit-plugins-deepgram~=1.0",
     "livekit-plugins-openai~=1.0",
+    "livekit-plugins-noise-cancellation",
+    "livekit-plugins-silero",
+    "python-dotenv>=1.1.0",
     "twilio>=9.6.3",
 ]
