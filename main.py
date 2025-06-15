@@ -15,15 +15,17 @@ from prompts.debt_collection import (
     compliance_warning
 )
 
-from livekit import agents, rtc, api
-from livekit.agents import AgentSession, RoomInputOptions
+from livekit import agents, rtc
+from livekit.agents import Agent, AgentSession, RoomInputOptions
+from livekit.api import LiveKitAPI
+# SIPService is accessed through livekit_api.sip
 from livekit.plugins import (
     deepgram,
     cartesia,
     openai,
-    noise_cancellation,
     silero,
     turn_detector,
+    noise_cancellation,
 )
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
@@ -33,12 +35,13 @@ from config import (
     DEEPGRAM_API_KEY,
     OPENAI_API_KEY,
     CARTESIA_API_KEY,
-    TWILIO_ACCOUNT_SID,
-    TWILIO_AUTH_TOKEN,
     TWILIO_NUMBER,
     RECORDINGS_DIR,
     TRANSCRIPTS_DIR,
     COMPLIANCE_REGIONS,
+    LIVEKIT_URL,
+    LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET,
 )
 
 # Configure logging
@@ -54,11 +57,15 @@ class DebtCollectionAgent:
         self.transcripts_dir = Path(TRANSCRIPTS_DIR)
         self._create_dirs()
 
-        # Initialize Twilio SIP provider
-        self.sip_provider = api.SIPProvider(
-            vendor="twilio",
-            auth={"account_sid": TWILIO_ACCOUNT_SID, "auth_token": TWILIO_AUTH_TOKEN},
+        # Initialize LiveKit API client
+        self.livekit_api = LiveKitAPI(
+            url=LIVEKIT_URL,
+            api_key=LIVEKIT_API_KEY,
+            api_secret=LIVEKIT_API_SECRET
         )
+        
+        # Initialize SIP service
+        self.sip_service = self.livekit_api.sip
 
     def _create_dirs(self):
         self.recordings_dir.mkdir(parents=True, exist_ok=True)
@@ -67,10 +74,20 @@ class DebtCollectionAgent:
     async def make_call(self, to_number: str) -> Optional[str]:
         """Initiate outbound call using LiveKit SIP"""
         try:
-            sip_part = await self.sip_provider.create_participant(
-                from_number=TWILIO_NUMBER, to_number=to_number
+            # Create a SIP call using the SIP service
+            # Note: You'll need to set up SIP dispatch rules in your LiveKit server first
+            # This is a simplified example - you may need to adjust based on your setup
+            response = await self.sip_service.create_sip_call(
+                to_number=to_number,
+                from_number=TWILIO_NUMBER,
+                # You'll need to configure these values based on your SIP setup
+                sip_trunk_id="your-sip-trunk-id",
+                room_name=f"sip-call-{datetime.now().timestamp()}",
+                participant_identity=f"caller-{datetime.now().timestamp()}",
+                participant_name="Caller"
             )
-            return sip_part.id
+            logger.info(f"SIP call initiated: {response}")
+            return response.call_id
         except Exception as e:
             logger.error(f"SIP call failed: {e}")
             return None
@@ -182,27 +199,56 @@ async def entrypoint(ctx: agents.JobContext):
             llm=openai.LLM(model="gpt-4o-mini"),
             tts=cartesia.TTS(model="sonic-2", voice="en-US-Standard-D"),
             vad=silero.VAD.load(),
-            turn_detection=MultilingualModel(),
-            room_input_options=RoomInputOptions(
-                noise_cancellation=noise_cancellation.BVC()
-            ),
+            turn_detection=MultilingualModel()
         )
+        
+        # Prepare for call recording (if supported)
+        recording_path = None
+        if hasattr(rtc, 'RoomEgress'):
+            try:
+                recording_path = Path(RECORDINGS_DIR) / f"call_{datetime.now().timestamp()}.m4a"
+                recording_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Create egress for recording
+                egress = rtc.RoomEgress(
+                    rtc.EncodedFileOutput(
+                        file_path=str(recording_path),
+                        file_type=rtc.EncodedFileType.MP4
+                    )
+                )
+                await ctx.room.start_egress(egress)
+                logger.info(f"Recording started: {recording_path}")
+            except Exception as e:
+                logger.warning(f"Could not start recording: {e}")
+                logger.info("Continuing without recording")
+                recording_path = None
+        else:
+            logger.info("Recording not supported in this version of LiveKit")
 
-        # Start call recording
-        recording_path = Path(RECORDINGS_DIR) / f"call_{datetime.now().timestamp()}.m4a"
-        egress = rtc.RoomEgress(
-            audio_output=rtc.EncodedAudioOutput(
-                file_type=rtc.EncodedFileType.M4A, filepath=str(recording_path)
-            )
+        # Start agent session with the debt collection agent
+        agent = Agent(
+            instructions="You are a professional debt collection agent for Riverline Bank. "
+                     "Your goal is to help customers resolve their outstanding balances "
+                     "while maintaining a professional and empathetic tone.",
         )
-        await ctx.room.start_egress(egress)
-
-        # Start agent session
+        
+        # Initialize the debt collection agent
+        debt_agent = DebtCollectionAgent()
+        
+        # Start the session
         await session.start(
             room=ctx.room,
-            agent=DebtCollectionAgent(),
-            workflow=debt_collection_workflow,
+            agent=agent,
+            room_input_options=RoomInputOptions(
+                noise_cancellation=noise_cancellation.BVC(),
+            ),
         )
+        
+        # Store the debt agent in the session for use in the workflow
+        session.debt_agent = debt_agent
+        
+        # Start the debt collection workflow in the background
+        asyncio.create_task(debt_collection_workflow(session))
 
     except Exception as e:
         logger.error(f"Entrypoint error: {e}")
