@@ -1,30 +1,33 @@
-import asyncio
 import json
 import logging
-import os
+import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
-from dotenv import load_dotenv
-
-# Load environment variables first
-load_dotenv()
-
-# Now import other dependencies
-from livekit import agents, api
-from livekit.agents import AgentSession, Agent, RoomInputOptions
+from livekit import agents, rtc, api
+from livekit.agents import AgentSession, RoomInputOptions
 from livekit.plugins import (
     deepgram, 
     cartesia,
     openai,
     noise_cancellation,
-    silero
+    silero,
+    turn_detector
 )
-from twilio.rest import Client
 
-# Import config after environment variables are loaded
-from config import *
+# Configuration
+from config import (
+    DEEPGRAM_API_KEY,
+    OPENAI_API_KEY,
+    CARTESIA_API_KEY,
+    TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN,
+    TWILIO_NUMBER,
+    RECORDINGS_DIR,
+    TRANSCRIPTS_DIR,
+    COMPLIANCE_REGIONS
+)
 
 # Configure logging
 logging.basicConfig(
@@ -33,244 +36,177 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Twilio client
-twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-
-class DebtCollectionAgent(Agent):
+class DebtCollectionAgent:
     def __init__(self):
-        super().__init__(
-            instructions="""
-            You are a professional debt collection agent for Riverline Bank. 
-            Your goal is to collect overdue credit card payments while maintaining 
-            a professional and empathetic tone. Follow this workflow:
-            
-            1. Verify customer identity
-            2. Explain purpose of call
-            3. Offer payment options
-            4. Handle objections
-            5. Confirm resolution or follow-up
-            
-            Key points:
-            - Always verify customer identity first
-            - Be empathetic but firm
-            - Offer flexible payment options
-            - Document all interactions
-            - Follow compliance guidelines
-            """
+        self.recordings_dir = Path(RECORDINGS_DIR)
+        self.transcripts_dir = Path(TRANSCRIPTS_DIR)
+        self._create_dirs()
+        
+        # Initialize Twilio SIP provider
+        self.sip_provider = api.SIPProvider(
+            vendor="twilio",
+            auth={
+                "account_sid": TWILIO_ACCOUNT_SID,
+                "auth_token": TWILIO_AUTH_TOKEN
+            }
         )
 
-async def make_call(phone_number: str, call_reason: str = "overdue_payment") -> Optional[str]:
-    """
-    Make an outbound call using Twilio.
-    
-    Args:
-        phone_number: The phone number to call
-        call_reason: The reason for the call (default: "overdue_payment")
-        
-    Returns:
-        The call SID if successful, None otherwise
-    """
-    try:
-        call = twilio_client.calls.create(
-            url=TWILIO_URL,
-            to=phone_number,
-            from_=TWILIO_NUMBER,
-            record=True,
-            status_callback=f"{TWILIO_URL}/status",
-            status_callback_method="POST"
-        )
-        logger.info(f"Call initiated to {phone_number}, SID: {call.sid}")
-        return call.sid
-    except Exception as e:
-        logger.error(f"Failed to make call: {str(e)}")
-        return None
+    def _create_dirs(self):
+        self.recordings_dir.mkdir(parents=True, exist_ok=True)
+        self.transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+    async def make_call(self, to_number: str) -> Optional[str]:
+        """Initiate outbound call using LiveKit SIP"""
+        try:
+            sip_part = await self.sip_provider.create_participant(
+                from_number=TWILIO_NUMBER,
+                to_number=to_number
+            )
+            return sip_part.id
+        except Exception as e:
+            logger.error(f"SIP call failed: {e}")
+            return None
+
+    async def transfer_to_human(self, session: AgentSession, reason: str):
+        """Transfer call to human agent"""
+        await session.say("Let me transfer you to a representative.")
+        await session.room.update_metadata({"transfer_reason": reason})
+        await session.disconnect()
 
 async def debt_collection_workflow(session: AgentSession):
-    """
-    Main workflow for debt collection conversation.
-    """
+    """Conversation workflow with compliance checks"""
     try:
-        # Initialize conversation context
-        context = {
-            "customer_verified": False,
-            "payment_options": {
-                "full_payment": "Pay full amount today",
-                "installment": "Setup payment plan",
-                "deferment": "Request payment deferment"
-            }
-        }
-
-        # Step 1: Initial greeting and verification
-        await session.say("Hello, this is Riverline Bank. May I speak to [Customer Name] please?")
-        
-        # Wait for response and verify identity
-        response = await session.generate_reply(
-            instructions="""
-            Verify customer identity by asking for:
-            1. Last 4 digits of account number
-            2. Date of birth
-            3. Last payment amount
-            
-            If verification fails, end call professionally.
-            """
-        )
-        
-        if not response:
-            await session.say("I'm sorry, I couldn't verify your identity. Goodbye.")
+        # Check regional compliance
+        if not await _check_compliance(session):
+            await session.say("This call cannot proceed due to regional regulations.")
             return
 
-        # Step 2: Explain purpose
-        await session.say("""
-        I'm calling regarding your overdue credit card payment of $500. 
-        This amount is now 30 days past due. Would you like to discuss payment options?
-        """)
-
-        # Step 3: Present payment options
-        response = await session.generate_reply(
-            instructions="""
-            Offer these payment options:
-            1. Pay full amount today
-            2. Set up installment plan
-            3. Request payment deferment
-            
-            Handle customer objections professionally.
-            """
+        # Configure LLM for empathetic responses
+        await session.llm.configure(
+            temperature=0.3,
+            system_message="""Respond with empathy while maintaining professionalism.
+            Use conversational repair strategies for misunderstandings.
+            Escalate when detecting high emotional stress."""
         )
 
-        # Step 4: Handle customer response
-        if "full_payment" in response.lower():
-            await process_payment(session)
-        elif "installment" in response.lower():
-            await setup_installment(session)
-        elif "deferment" in response.lower():
-            await handle_deferment(session)
-        else:
-            await handle_objection(session)
+        # Conversation steps
+        context = await _verify_identity(session)
+        if not context.get("verified"):
+            return
+
+        await _discuss_payment(session, context)
+        await _handle_resolution(session, context)
 
     except Exception as e:
-        logger.error(f"Workflow error: {str(e)}")
-        await session.say("I apologize, but we're experiencing technical difficulties. Please call back later.")
-        raise e
+        logger.error(f"Workflow error: {e}")
+        await session.say("We're experiencing technical difficulties. Please call back later.")
+        raise
 
-async def process_payment(session: AgentSession):
-    """
-    Handle full payment processing.
-    """
-    await session.say("""
-    Great! We can process your payment through:
-    1. Credit card
-    2. Bank transfer
-    3. Online payment portal
+async def _verify_identity(session: AgentSession) -> Dict:
+    """Identity verification step"""
+    context = {"verified": False}
+    await session.say("Hello, this is Riverline Bank. May I speak to the account holder?")
+
+    # Collect verification info
+    responses = await session.llm.extract(
+        instructions="""Extract:
+        - Last 4 digits of account
+        - Date of birth (MM/DD/YYYY)
+        - Last payment amount"""
+    )
+
+    if all(k in responses for k in ["account", "dob", "amount"]):
+        context["verified"] = True
+        await session.say("Thank you for verifying.")
+    else:
+        await session.say("Unable to verify. Goodbye.")
+
+    return context
+
+async def _discuss_payment(session: AgentSession, context: Dict):
+    """Payment discussion logic"""
+    options = {
+        "full": "Pay in full today",
+        "installment": "Set up installment plan",
+        "deferment": "Discuss payment deferment"
+    }
+
+    response = await session.llm.generate(
+        prompt=f"""Present options: {options}. 
+        Handle objections professionally."""
+    )
     
-    Which method would you prefer?
-    """)
-    # Add payment processing logic here
+    await session.say(response)
 
-async def setup_installment(session: AgentSession):
-    """
-    Handle installment plan setup.
-    """
-    await session.say("""
-    I can help you set up an installment plan. 
-    How many monthly payments would you prefer?
-    """)
-    # Add installment plan logic here
+async def _handle_resolution(session: AgentSession, context: Dict):
+    """Final resolution handling"""
+    response = await session.llm.generate(
+        prompt="Confirm resolution and next steps."
+    )
+    
+    await session.say(response)
+    await _save_transcript(session)
 
-async def handle_deferment(session: AgentSession):
-    """
-    Handle payment deferment requests.
-    """
-    await session.say("""
-    I understand your situation. Let's discuss a payment deferment.
-    Could you explain why you're having difficulty making the payment?
-    """)
-    # Add deferment logic here
+async def _save_transcript(session: AgentSession):
+    """Save conversation transcript"""
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        transcript_path = Path(TRANSCRIPTS_DIR) / f"transcript_{timestamp}.json"
+        
+        transcript = {
+            "participants": [p.identity for p in session.room.participants.values()],
+            "history": [msg.to_dict() for msg in session.history.messages],
+            "metadata": session.room.metadata
+        }
 
-async def handle_objection(session: AgentSession):
-    """
-    Handle customer objections.
-    """
-    await session.say("""
-    I understand your concerns. Let's find a solution that works for you.
-    Would you like to:
-    1. Discuss alternative payment options
-    2. Set up a payment plan
-    3. Talk to a supervisor
-    """)
-    # Add objection handling logic here
+        with open(transcript_path, 'w') as f:
+            json.dump(transcript, f, indent=2)
+
+    except Exception as e:
+        logger.error(f"Transcript save failed: {e}")
+
+async def _check_compliance(session: AgentSession) -> bool:
+    """Check regional compliance regulations"""
+    location = session.room.participant.location
+    return location in COMPLIANCE_REGIONS
 
 async def entrypoint(ctx: agents.JobContext):
-    """
-    Main entrypoint for LiveKit agent.
-    """
+    """LiveKit agent entrypoint"""
     try:
-        # Initialize plugins
-        stt = deepgram.STT(model="nova-3")
-        llm = openai.LLM(model="gpt-4o-mini")
-        tts = cartesia.TTS(model="sonic-2", voice="en-US-Standard-D")
-        vad = silero.VAD.load()
-        
-        # Create room input options
-        room_input = RoomInputOptions()
-        room_input.noise_cancellation = noise_cancellation.BVCTelephony()
-        
-        # Create session with plugins
+        # Initialize AI components
         session = AgentSession(
-            stt=stt,
-            llm=llm,
-            tts=tts,
-            vad=vad,
-            room_input_options=room_input
+            stt=deepgram.STT(model="nova-3"),
+            llm=openai.LLM(model="gpt-4o-mini"),
+            tts=cartesia.TTS(model="sonic-2", voice="en-US-Standard-D"),
+            vad=silero.VAD.load(),
+            turn_detection=turn_detector.MultilingualModel(),
+            room_input_options=RoomInputOptions(
+                noise_cancellation=noise_cancellation.BVC()
+            )
         )
 
-        # Set up recording
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        recording_path = Path("recordings") / f"debt_collection_{timestamp}.mp3"
-        recording_path.parent.mkdir(exist_ok=True)
-
-        egress_req = api.RoomCompositeEgressRequest(
-            room_name=ctx.room.name,
-            audio_only=True,
-            file_outputs=[api.EncodedFileOutput(
-                file_type=api.EncodedFileType.MP3,
+        # Start call recording
+        recording_path = Path(RECORDINGS_DIR) / f"call_{datetime.now().timestamp()}.m4a"
+        egress = rtc.RoomEgress(
+            audio_output=rtc.EncodedAudioOutput(
+                file_type=rtc.EncodedFileType.M4A,
                 filepath=str(recording_path)
-            )]
+            )
         )
+        await ctx.room.start_egress(egress)
 
-        # Start agent
+        # Start agent session
         await session.start(
             room=ctx.room,
             agent=DebtCollectionAgent(),
             workflow=debt_collection_workflow
         )
 
-        # Save transcript on shutdown
-        async def save_transcript():
-            try:
-                transcript_path = Path("transcripts") / f"debt_collection_{timestamp}.json"
-                transcript_path.parent.mkdir(exist_ok=True)
-                
-                with open(transcript_path, "w") as f:
-                    json.dump({
-                        "timestamp": timestamp,
-                        "conversation": session.history.to_json(),
-                        "metadata": {
-                            "customer_verified": True,
-                            "resolution_status": "pending"
-                        }
-                    }, f, indent=2)
-                
-                logger.info(f"Transcript saved to {transcript_path}")
-            except Exception as e:
-                logger.error(f"Failed to save transcript: {str(e)}")
-
-        ctx.add_shutdown_callback(save_transcript)
-        
-        await ctx.connect()
-
     except Exception as e:
-        logger.error(f"Agent initialization failed: {str(e)}")
-        raise e
+        logger.error(f"Entrypoint error: {e}")
+        raise
+
+    await ctx.connect()
 
 if __name__ == "__main__":
     agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
