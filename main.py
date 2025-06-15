@@ -132,65 +132,81 @@ async def debt_collection_workflow(session: AgentSession):
 async def _verify_identity(session: AgentSession) -> Dict:
     """Identity verification step"""
     context = {"verified": False, "customer_info": {}}
-    
+
     # Ask for account number
-    await session.say("For security purposes, could you please provide the last 4 digits of your account number?")
-    
+    await session.say(
+        "For security purposes, could you please provide the last 4 digits of your account number?"
+    )
+
     try:
         # In a real implementation, we would use the LiveKit transcription events
         # For now, we'll simulate a successful verification after a short delay
         await asyncio.sleep(3.0)  # Simulate waiting for user response
-        
+
         # Simulate a successful verification with test data
         account_last4 = "1234"  # Test account number
         identity = {
             "account": f"XXXX{account_last4}",
             "amount": "$1,234.56",
-            "due_date": "2025-06-30"
+            "due_date": "2025-06-30",
         }
-        
-        context.update({
-            "verified": True,
-            "customer_info": identity,
-            "account_last4": account_last4
-        })
-        
-        await session.say(f"Thank you for verifying your identity. I see you have an outstanding balance of {identity['amount']} on account ending in {account_last4}.")
-        
+
+        context.update(
+            {
+                "verified": True,
+                "customer_info": identity,
+                "account_last4": account_last4,
+            }
+        )
+
+        await session.say(
+            f"Thank you for verifying your identity. I see you have an outstanding balance of {identity['amount']} on account ending in {account_last4}."
+        )
+
     except Exception as e:
         logger.error(f"Error during identity verification: {e}")
-        await session.say("I encountered an error while verifying your identity. Let's try again.")
-    
+        await session.say(
+            "I encountered an error while verifying your identity. Let's try again."
+        )
+
     return context
 
 
 async def _discuss_payment(session: AgentSession, context: Dict):
     """Payment discussion logic"""
     if not context.get("verified"):
-        await session.say("I'll need to verify your identity before discussing payment options.")
+        await session.say(
+            "I'll need to verify your identity before discussing payment options."
+        )
         return False
-        
+
     try:
         # Present payment options
         payment_options = ai_parse_payment_discussion()
         await session.say(payment_options)
-        
+
         # In a real implementation, we would process user input here
         # For now, we'll simulate a payment plan selection
         await asyncio.sleep(2.0)
-        
+
         # Simulate selecting a payment plan
-        await session.say("I'll help you set up a payment plan for your outstanding balance.")
+        await session.say(
+            "I'll help you set up a payment plan for your outstanding balance."
+        )
         await asyncio.sleep(1.0)
-        
+
         # Confirm the payment plan
-        await session.say(f"I've set up a 3-month payment plan for your balance of {context.get('customer_info', {}).get('amount', 'the amount')}. The first payment will be due on {context.get('customer_info', {}).get('due_date', 'the due date')}.")
-        
+        await session.say(
+            f"I've set up a 3-month payment plan for your balance of {context.get('customer_info', {}).get('amount', 'the amount')}. The first payment will be due on {context.get('customer_info', {}).get('due_date', 'the due date')}."
+        )
+
         return True
-        
+
     except Exception as e:
         logger.error(f"Error during payment discussion: {e}")
-        await session.say("I encountered an error while processing your request. Let's try again.")
+        await session.say(
+            "I encountered an error while processing your request. Let's try again."
+        )
         return False
 
 
@@ -207,23 +223,25 @@ async def _handle_resolution(session: AgentSession, context: Dict):
             "payment_plan": {
                 "duration_months": 3,
                 "amount": context.get("customer_info", {}).get("amount", "unknown"),
-                "first_payment_due": context.get("customer_info", {}).get("due_date", "unknown")
-            }
+                "first_payment_due": context.get("customer_info", {}).get(
+                    "due_date", "unknown"
+                ),
+            },
         }
-        
+
         # Generate confirmation message
         response = ai_resolution_confirmation(str(resolution_details))
         await session.say(response)
-        
+
         # Short delay before ending the call
         await asyncio.sleep(1.5)
-        
+
         # Save the transcript before ending the call
         await _save_transcript(session)
-        
+
         # End the conversation
         await session.say("Thank you for calling Riverline Bank. Have a great day!")
-        
+
     except Exception as e:
         logger.error(f"Error during resolution: {e}")
         await session.say("I encountered an error while finalizing your request.")
@@ -252,25 +270,25 @@ async def _save_transcript(session: AgentSession):
     try:
         # Ensure transcripts directory exists
         os.makedirs("transcripts", exist_ok=True)
-        
+
         # Generate timestamp for filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         transcript_path = f"transcripts/transcript_{timestamp}.json"
-        
+
         # Get the conversation history from the session
-        if not hasattr(session, 'history'):
+        if not hasattr(session, "history"):
             logger.warning("Session has no history attribute")
             return
-            
+
         # Convert history to a serializable format
         transcript_data = session.history.to_dict()
-        
+
         # Save to file
-        with open(transcript_path, 'w') as f:
+        with open(transcript_path, "w") as f:
             json.dump(transcript_data, f, indent=2)
-            
+
         logger.info(f"Transcript saved to {transcript_path}")
-        
+
     except Exception as e:
         logger.error(f"Failed to save transcript: {e}", exc_info=True)
         # Don't raise the exception to prevent workflow failure due to transcript saving issues
