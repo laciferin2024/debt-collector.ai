@@ -204,17 +204,23 @@ async def entrypoint(ctx: agents.JobContext):
     Main entrypoint for LiveKit agent.
     """
     try:
-        # Create session with enhanced plugins
+        # Initialize plugins
+        stt = deepgram.STT(model="nova-3")
+        llm = openai.LLM(model="gpt-4o-mini")
+        tts = cartesia.TTS(model="sonic-2", voice="en-US-Standard-D")
+        vad = silero.VAD.load()
+        
+        # Create room input options
+        room_input = RoomInputOptions()
+        room_input.noise_cancellation = noise_cancellation.BVCTelephony()
+        
+        # Create session with plugins
         session = AgentSession(
-            stt=deepgram.STT(model="nova-3"),
-            llm=openai.LLM(model="gpt-4o-mini"),
-            tts=cartesia.TTS(model="sonic-2", voice="en-US-Standard-D"),
-            vad=silero.VAD.load(),
-            room_input_options=RoomInputOptions(
-                noise_cancellation=noise_cancellation.BVCTelephony(),
-                echo_cancellation=True,
-                automatic_gain_control=True
-            )
+            stt=stt,
+            llm=llm,
+            tts=tts,
+            vad=vad,
+            room_input_options=room_input
         )
 
         # Set up recording
