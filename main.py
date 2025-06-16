@@ -249,22 +249,6 @@ async def _handle_resolution(session: AgentSession, context: Dict):
         raise
 
 
-def _convert_to_serializable(obj):
-    """Recursively convert objects to a JSON-serializable format."""
-    if obj is None or isinstance(obj, (str, int, float, bool)):
-        return obj
-    elif isinstance(obj, dict):
-        return {k: _convert_to_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        return [_convert_to_serializable(item) for item in obj]
-    elif hasattr(obj, "__dict__"):
-        # Convert objects with __dict__ to dict
-        return _convert_to_serializable(obj.__dict__)
-    else:
-        # Fallback: convert to string
-        return str(obj)
-
-
 async def _save_transcript(session: AgentSession):
     """Save conversation transcript using LiveKit's built-in functionality"""
     try:
