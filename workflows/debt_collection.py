@@ -38,7 +38,7 @@ class DebtCollectionWorkflow:
             "call_start_time": datetime.utcnow().isoformat(),
         }
 
-        self.session.on("user_input_transcribed", self.on_user_input)
+        self.session.on("user_input_transcribed", self.on_user_input)  # TODO:
         self.session.on(
             "user_speech_transcribed", self.on_user_input
         )  # FIXME: doesn't work its for custom emit -->p
@@ -94,9 +94,16 @@ class DebtCollectionWorkflow:
                 logger.debug("waiting for input")
                 await asyncio.sleep(1)
 
-            logger.info(f"Captured input: {self.captured_input}")
+            # user_input = await self.session.generate_reply(
+            #     user_input="1234",
+            #     instructions="Listen for the user's response containing 4 digits and acknowledge receipt",
+            # )
+
+            user_input = self.captured_input
+
+            logger.info(f"Captured input: {user_input}")
             try:
-                account_last4 = self.extract_digits(self.captured_input)
+                account_last4 = self.extract_digits(user_input)
 
                 if not (account_last4.isdigit() and len(account_last4) == 4):
                     await self.session.say(
@@ -179,7 +186,8 @@ class DebtCollectionWorkflow:
         msg: ChatMessage = event.item
 
         # capture user input if we are waiting for it
-        if self.waiting_for_input and msg.role == "user":
-            self.captured_input = msg.message
+        # TODO: simulate user
+        if self.waiting_for_input:  # and msg.role == "user":
+            self.captured_input = "1234"
             self.waiting_for_input = False
             logger.debug(f"User input set: {self.captured_input}")
