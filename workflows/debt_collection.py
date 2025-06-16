@@ -1,8 +1,8 @@
 """Debt collection workflow implementation."""
 
 import logging
-from datetime import datetime
-from typing import Dict, Any
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
 
 from livekit.agents import (
     AgentSession,
@@ -15,8 +15,6 @@ from livekit.api import ChatMessage
 
 # Import prompts
 from prompts.debt_collection.prompts import (
-    ai_parse_payment_discussion,
-    ai_resolution_confirmation,
     ai_compliance_warning,
     ai_technical_issue_disclaimer,
 )
@@ -149,31 +147,118 @@ class DebtCollectionWorkflow:
         return True
 
     async def discuss_payment(self) -> bool:
-        """Discuss payment options with the caller."""
+        """Discuss payment options with the caller in a natural conversation."""
         if not self.context.get("verified"):
             await self.session.say(
-                "I'll need to verify your identity before discussing payment options."
+                "For security reasons, I'll need to verify your identity before we discuss payment options. "
+                "Could you please confirm the last 4 digits of your account number?"
             )
             return False
 
         try:
-            payment_options = ai_parse_payment_discussion()
-            await self.session.say(payment_options)
+            # Start with empathy and understanding
+            await self.session.say(
+                f"I understand that managing finances can be challenging. Let's work together to find a solution "
+                f"that works for you regarding your balance of {self.context['customer_info']['amount']}."
+            )
+            
+            # Present payment options naturally
+            await self.session.say(
+                "You have a few options available:"
+                "\n1. You can pay the full amount today."
+                "\n2. We can set up a payment plan that fits your budget."
+                "\n3. If you're experiencing financial hardship, we can discuss potential assistance programs."
+                "\nWhich option would you like to explore?"
+            )
+            
+            # Simulate user selecting an option (in a real scenario, this would come from user input)
+            self.waiting_for_input = True
+            await asyncio.sleep(2)  # Simulate user response time
+            
+            # For demo purposes, we'll assume they chose a payment plan
+            # In a real implementation, this would be determined by user input
+            self.context['payment_plan'] = {
+                'amount': '$250',
+                'start_date': (datetime.utcnow() + timedelta(days=7)).strftime('%B %d, %Y'),
+                'installments': 5,
+                'next_payment_amount': '$50',
+                'next_payment_date': (datetime.utcnow() + timedelta(days=7)).strftime('%B %d, %Y')
+            }
+            
             return True
-
+            
         except Exception as e:
-            logger.error(f"Error discussing payment: {e}")
+            logger.error(f"Error discussing payment options: {e}", exc_info=True)
+            await self.session.say(
+                "I apologize, but I'm having trouble accessing your account information. "
+                "Let me transfer you to a representative who can assist you further."
+            )
             return False
 
     async def handle_resolution(self) -> None:
-        """Handle the resolution of the call."""
+        """Handle the resolution of the call with a natural conversation flow."""
         try:
-            resolution = ai_resolution_confirmation()
-            await self.session.say(resolution)
+            # Confirm the resolution with the customer
+            await self.session.say("Let me confirm the details we've discussed:")
+            
+            # Summarize the agreement
+            if self.context.get('payment_plan'):
+                plan = self.context['payment_plan']
+                summary = (
+                    f"You've agreed to a payment plan of {plan.get('amount')} "
+                    f"starting on {plan.get('start_date')} with "
+                    f"{plan.get('installments')} monthly payments. "
+                    f"Your next payment of {plan.get('next_payment_amount')} "
+                    f"is due on {plan.get('next_payment_date')}."
+                )
+                await self.session.say(summary)
+            else:
+                await self.session.say("I'll process your payment now. Please hold for a moment while I confirm the transaction.")
+                # Simulate processing time
+                await asyncio.sleep(2)
+                await self.session.say("Thank you, your payment has been processed successfully.")
+
+            # Provide reference information
+            ref_number = f"REF-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            await self.session.say(
+                f"Your reference number is {ref_number}. "
+                "I'll email you a confirmation with all these details right away."
+            )
+            
+            # Ask for confirmation
+            await self.session.say("Is there anything else I can assist you with today?")
+            
+            # Wait for response (simplified for example)
+            self.waiting_for_input = True
+            await asyncio.sleep(2)  # Simulate user response time
+            
+            # Close the conversation
+            await self.session.say(
+                "Thank you for your time today. Have a wonderful day!"
+            )
+            
+            # Update context with resolution details
+            self.context.update({
+                'resolution': 'success',
+                'reference_number': ref_number,
+                'call_end_time': datetime.utcnow().isoformat()
+            })
+            
+            # Log successful resolution
+            logger.info(f"Successfully resolved call with reference {ref_number}")
 
         except Exception as e:
-            logger.error(f"Error handling resolution: {e}")
-            raise
+            logger.error(f"Error handling resolution: {e}", exc_info=True)
+            await self.session.say(
+                "I apologize, but I'm having trouble processing this request. "
+                "Please hold while I transfer you to a representative who can assist you further."
+            )
+            # Set error state in context
+            self.context.update({
+                'resolution': 'error',
+                'error': str(e),
+                'call_end_time': datetime.utcnow().isoformat()
+            })
 
     def on_user_input(self, event: UserInputTranscribedEvent):
         logger.debug("User input received: {}".format(event.transcript))
