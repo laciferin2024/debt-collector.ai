@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from ntpath import exists
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -343,7 +344,9 @@ async def entrypoint(ctx: agents.JobContext):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Debt Collector AI Main")
+    parser = argparse.ArgumentParser(
+        description="Debt Collector AI Main", exit_on_error=False
+    )
     parser.add_argument(
         "--test-bot",
         action="store_true",
@@ -355,7 +358,8 @@ if __name__ == "__main__":
         default="Hello, this is Riverline Bank. I'm calling to discuss your outstanding balance and help you find a resolution. Can we talk about your payment options?",
         help="Initial bot script for testing",
     )
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+
     if args.test_bot:
         # Run the automated testing + self-correcting loop (Challenge 2)
         asyncio.run(self_correcting_test_loop(args.script))
