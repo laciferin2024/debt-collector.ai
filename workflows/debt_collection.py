@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 from livekit.agents import AgentSession
+import asyncio
 
 # Import prompts
 from prompts.debt_collection.prompts import (
@@ -29,10 +30,12 @@ class DebtCollectionWorkflow:
             "call_start_time": datetime.utcnow().isoformat(),
         }
 
+        self.session.on("user_input_transcribed", self.on_user_input)
+
     async def run(self) -> None:
         """Execute the complete debt collection workflow."""
         try:
-            if not await self._check_compliance():
+            if not await self.check_compliance():
                 await self.session.say(
                     "This call cannot proceed due to regional regulations."
                 )
@@ -58,16 +61,26 @@ class DebtCollectionWorkflow:
             "Hello, this is an automated call from Riverline Bank regarding your outstanding balance."
         )
 
+    @staticmethod
+    def extract_digits(text):
+        import re
+
+        digits = re.findall(r"\d", text)
+        return "".join(digits)[-4:] if len(digits) >= 4 else "".join(digits)
+
     async def _verify_identity(self) -> bool:
         """Verify the caller's identity using account information."""
         while True:
             await self.session.say(
-                "For security purposes, could you please provide the last 4 digits of your account number?"
+                "For security purposes, could you please provide the last 4 digits of your account number?",
+                allow_interruptions=True,
             )
 
             try:
-                response = await self.session.listen()
-                account_last4 = response.strip()
+                response = await self.session.generate_reply(
+                    instructions="Listen for the user's response containing 4 digits and acknowledge receipt"
+                )
+                account_last4 = self.extract_digits(response)
 
                 if not (account_last4.isdigit() and len(account_last4) == 4):
                     await self.session.say(
@@ -106,7 +119,7 @@ class DebtCollectionWorkflow:
                 )
                 return False
 
-    async def _check_compliance(self) -> bool:
+    async def check_compliance(self) -> bool:
         """Check if the call complies with regional regulations."""
         # In a real implementation, this would check the caller's region
         # against compliance rules
@@ -138,3 +151,8 @@ class DebtCollectionWorkflow:
         except Exception as e:
             logger.error(f"Error handling resolution: {e}")
             raise
+
+    def on_user_input(self, event):
+        if event.is_final and self.waiting_for_input:
+            self.captured_input = event.transcript
+            self.waiting_for_input = False
