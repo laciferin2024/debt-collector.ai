@@ -31,6 +31,15 @@ LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_URL = os.getenv("LIVEKIT_URL")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 
+# SIP Configuration
+SIP_TRUNK_ID = os.getenv("SIP_TRUNK_ID")
+SIP_CALL_TIMEOUT = int(os.getenv("SIP_CALL_TIMEOUT", "30"))  # seconds
+SIP_DEFAULT_ROOM_PREFIX = os.getenv("SIP_DEFAULT_ROOM_PREFIX", "sip-call-")
+SIP_DEFAULT_PARTICIPANT_IDENTITY = os.getenv("SIP_DEFAULT_PARTICIPANT_IDENTITY", "debt-collector")
+SIP_DEFAULT_PARTICIPANT_NAME = os.getenv("SIP_DEFAULT_PARTICIPANT_NAME", "Debt Collection Agent")
+SIP_KRISP_ENABLED = os.getenv("SIP_KRISP_ENABLED", "true").lower() == "true"
+SIP_WAIT_UNTIL_ANSWERED = os.getenv("SIP_WAIT_UNTIL_ANSWERED", "true").lower() == "true"
+
 # Application Settings
 RECORDINGS_DIR: str = os.getenv("RECORDINGS_DIR", "recordings")
 TRANSCRIPTS_DIR: str = os.getenv("TRANSCRIPTS_DIR", "transcripts")
@@ -49,6 +58,7 @@ REQUIRED_KEYS = [
     ("LIVEKIT_API_KEY", LIVEKIT_API_KEY),
     ("LIVEKIT_URL", LIVEKIT_URL),
     ("LIVEKIT_API_SECRET", LIVEKIT_API_SECRET),
+    ("SIP_TRUNK_ID", SIP_TRUNK_ID),
 ]
 
 for key, value in REQUIRED_KEYS:
@@ -58,4 +68,6 @@ for key, value in REQUIRED_KEYS:
 # Create directories if they don't exist
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
+
+# Twilio URL for callbacks
 TWILIO_URL = os.getenv("TWILIO_URL")
