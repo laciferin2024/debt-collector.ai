@@ -139,12 +139,24 @@ async def _verify_identity(session: AgentSession) -> Dict:
     )
 
     try:
-        # In a real implementation, we would use the LiveKit transcription events
-        # For now, we'll simulate a successful verification after a short delay
-        await asyncio.sleep(3.0)  # Simulate waiting for user response
+        # Get user input for the last 4 digits of their account number
+        response = await session.listen()
+        account_last4 = response.strip()
 
-        # Simulate a successful verification with test data
-        account_last4 = "1234"  # Test account number
+        # Validate the input is 4 digits
+        if not (account_last4.isdigit() and len(account_last4) == 4):
+            await session.say(
+                "Please provide exactly 4 digits for your account number."
+            )
+            return await _verify_identity(session)
+
+        # Check if the last 4 digits match the expected value
+        if account_last4 != "1234":
+            await session.say(
+                "The account number you provided doesn't match our records. Please try again."
+            )
+            return await _verify_identity(session)
+
         identity = {
             "account": f"XXXX{account_last4}",
             "amount": "$1,234.56",
