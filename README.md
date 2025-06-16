@@ -50,7 +50,16 @@ uv run main.py --test-bot
 - Use the `--test-bot` flag to run automated tests.
 - Logs are available in the console for troubleshooting.
 
+## What's Next
+
+- **Fix Twilio Outbound Call Issue**: Investigate and resolve the issue preventing outbound calls to UAE numbers using your Twilio number. Check for any region-specific restrictions or required configurations in Twilio's documentation.
+
+- **Migrate to DeepSeek API**: Transition from OpenAI's free tier to the DeepSeek API for Challenge 2. This will help overcome the limitations of OpenAI's free tier. Update your codebase to integrate DeepSeek API calls where necessary.
+
+- **Command-Line Options**: The application can be run with the following command-line options:
+  - `--test-bot`: Runs the automated LLM testing and self-correction loop.
+  - `--script <script>`: Specifies the initial bot script for testing. Defaults to a predefined script if not provided.
+
 ## Contribution Guidelines
 
 Feel free to fork the repository and submit pull requests. For major changes, please open an issue first to discuss what you would like to change.
-
