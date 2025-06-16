@@ -24,6 +24,8 @@ class DebtCollectionWorkflow:
     def __init__(self, session: AgentSession):
         """Initialize with an active agent session."""
         self.session = session
+        self.waiting_for_input = False
+        self.captured_input = None
         self.context: Dict[str, Any] = {
             "verified": False,
             "customer_info": {},
@@ -43,7 +45,7 @@ class DebtCollectionWorkflow:
 
             await self._start_conversation()
 
-            if not await self._verify_identity():
+            if not await self.verify_identity():
                 return
 
             await self._discuss_payment()
@@ -68,19 +70,22 @@ class DebtCollectionWorkflow:
         digits = re.findall(r"\d", text)
         return "".join(digits)[-4:] if len(digits) >= 4 else "".join(digits)
 
-    async def _verify_identity(self) -> bool:
+    async def verify_identity(self) -> bool:
         """Verify the caller's identity using account information."""
-        while True:
+        while True:  # todo: configure tries
+            self.waiting_for_input = True
             await self.session.say(
                 "For security purposes, could you please provide the last 4 digits of your account number?",
                 allow_interruptions=True,
             )
 
+            while self.waiting_for_input:
+                logger.debug("waiting for input")
+                await asyncio.sleep(1)
+
+            logger.info(f"Captured input: {self.captured_input}")
             try:
-                response = await self.session.generate_reply(
-                    instructions="Listen for the user's response containing 4 digits and acknowledge receipt"
-                )
-                account_last4 = self.extract_digits(response)
+                account_last4 = self.extract_digits(self.captured_input)
 
                 if not (account_last4.isdigit() and len(account_last4) == 4):
                     await self.session.say(
@@ -153,6 +158,7 @@ class DebtCollectionWorkflow:
             raise
 
     def on_user_input(self, event):
-        if event.is_final and self.waiting_for_input:
+        logger.debug("User input received: {}".format(event.transcript))
+        if self.waiting_for_input:
             self.captured_input = event.transcript
             self.waiting_for_input = False
