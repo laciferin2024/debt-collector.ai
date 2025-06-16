@@ -1,10 +1,9 @@
 import json
 import logging
-import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Any, Dict, Optional
 
 # Import prompts
 from prompts.debt_collection.prompts import (
@@ -51,255 +50,262 @@ logger = logging.getLogger(__name__)
 
 
 class DebtCollectionAgent:
+    """Handles debt collection operations including call management and customer interactions.
+    
+    Attributes:
+        livekit_api: Client for LiveKit API interactions
+        sip_service: Service for SIP call functionality
+        recordings_dir: Directory to store call recordings
+        transcripts_dir: Directory to store conversation transcripts
+    """
+    
     def __init__(self):
+        """Initialize the DebtCollectionAgent with required services and directories."""
         self.recordings_dir = Path(RECORDINGS_DIR)
         self.transcripts_dir = Path(TRANSCRIPTS_DIR)
-        self._create_dirs()
-
-        # Initialize LiveKit API client
-        self.livekit_api = LiveKitAPI(
-            url=LIVEKIT_URL, api_key=LIVEKIT_API_KEY, api_secret=LIVEKIT_API_SECRET
-        )
-
-        # Initialize SIP service
-        self.sip_service = self.livekit_api.sip
-
-    def _create_dirs(self):
-        self.recordings_dir.mkdir(parents=True, exist_ok=True)
-        self.transcripts_dir.mkdir(parents=True, exist_ok=True)
-
-    async def make_call(self, to_number: str) -> Optional[str]:
-        """Initiate outbound call using LiveKit SIP"""
+        self._setup_directories()
+        self._initialize_services()
+    
+    def _setup_directories(self) -> None:
+        """Create required directories if they don't exist."""
         try:
-            # Create a SIP call using the SIP service
-            # Note: You'll need to set up SIP dispatch rules in your LiveKit server first
-            # This is a simplified example - you may need to adjust based on your setup
+            self.recordings_dir.mkdir(parents=True, exist_ok=True)
+            self.transcripts_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Directories set up: {self.recordings_dir}, {self.transcripts_dir}")
+        except OSError as e:
+            logger.error(f"Failed to create directories: {e}")
+            raise
+    
+    def _initialize_services(self) -> None:
+        """Initialize external service connections."""
+        try:
+            self.livekit_api = LiveKitAPI(
+                url=LIVEKIT_URL, 
+                api_key=LIVEKIT_API_KEY, 
+                api_secret=LIVEKIT_API_SECRET
+            )
+            self.sip_service = self.livekit_api.sip
+            logger.info("Successfully initialized LiveKit API and SIP service")
+        except Exception as e:
+            logger.error(f"Failed to initialize services: {e}")
+            raise
+    
+    async def make_call(self, to_number: str) -> Optional[str]:
+        """Initiate an outbound call using LiveKit SIP.
+        
+        Args:
+            to_number: The phone number to call (in E.164 format)
+            
+        Returns:
+            str: Call ID if successful, None otherwise
+        """
+        try:
             response = await self.sip_service.create_sip_call(
                 to_number=to_number,
                 from_number=TWILIO_NUMBER,
-                # You'll need to configure these values based on your SIP setup
                 sip_trunk_id="your-sip-trunk-id",
                 room_name=f"sip-call-{datetime.now().timestamp()}",
                 participant_identity=f"caller-{datetime.now().timestamp()}",
                 participant_name="Caller",
             )
-            logger.info(f"SIP call initiated: {response}")
+            logger.info(f"Successfully initiated SIP call to {to_number}")
             return response.call_id
+            
         except Exception as e:
-            logger.error(f"SIP call failed: {e}")
+            logger.error(f"Failed to initiate SIP call to {to_number}: {e}")
             return None
+    
+    async def transfer_to_human(self, session: AgentSession, reason: str) -> None:
+        """Transfer the call to a human agent.
+        
+        Args:
+            session: The current agent session
+            reason: Reason for transfer (for logging and analytics)
+        """
+        try:
+            logger.info(f"Initiating transfer to human agent. Reason: {reason}")
+            await session.say("Let me transfer you to a representative.")
+            await session.room.update_metadata({"transfer_reason": reason})
+            await session.disconnect()
+            logger.info("Successfully transferred call to human agent")
+        except Exception as e:
+            logger.error(f"Failed to transfer to human agent: {e}")
+            raise
 
-    async def transfer_to_human(self, session: AgentSession, reason: str):
-        """Transfer call to human agent"""
-        await session.say("Let me transfer you to a representative.")
-        await session.room.update_metadata({"transfer_reason": reason})
-        await session.disconnect()
 
+    async def start_call_workflow(self, session: AgentSession) -> None:
+        """Start the debt collection call workflow.
+        
+        Args:
+            session: The agent session for the call
+        """
+        try:
+            if not await self._check_compliance(session.ctx.room):
+                await session.say("This call cannot proceed due to regional regulations.")
+                return
 
-async def debt_collection_workflow(session: AgentSession):
-    """Conversation workflow with compliance checks"""
-    try:
-        # Get the room from the session's context
-        room = session.ctx.room
-
-        # Check regional compliance
-        if not await _check_compliance(room):
-            await session.say("This call cannot proceed due to regional regulations.")
-            return
-
-        # Play compliance warning
+            await self._play_compliance_warning(session)
+            await self._start_conversation(session)
+            
+        except Exception as e:
+            logger.error(f"Error in call workflow: {e}")
+            await session.say(ai_technical_issue_disclaimer)
+            raise
+    
+    async def _play_compliance_warning(self, session: AgentSession) -> None:
+        """Play compliance warning and introduction."""
         await session.say(ai_compliance_warning)
-
-        # Start the conversation
         await session.say(
             "Hello, this is an automated call from Riverline Bank regarding your outstanding balance."
         )
-
-        # Conversation steps
-        context = await _verify_identity(session)
+    
+    async def _start_conversation(self, session: AgentSession) -> None:
+        """Handle the main conversation flow."""
+        context = await self._verify_identity(session)
         if not context.get("verified"):
             return
-
-        await _discuss_payment(session, context)
-        await _handle_resolution(session, context)
-
-    except Exception as e:
-        logger.error(f"Workflow error: {e}")
-        await session.say(ai_technical_issue_disclaimer)
-        raise
-
-
-async def _verify_identity(session: AgentSession) -> Dict:
-    """Identity verification step"""
-    context = {"verified": False, "customer_info": {}}
-
-    # Ask for account number
-    await session.say(
-        "For security purposes, could you please provide the last 4 digits of your account number?"
-    )
-
-    try:
-        # Get user input for the last 4 digits of their account number
-        response = await session.listen()
-        account_last4 = response.strip()
-
-        # Validate the input is 4 digits
-        if not (account_last4.isdigit() and len(account_last4) == 4):
+            
+        await self._discuss_payment(session, context)
+        await self._handle_resolution(session, context)
+    
+    async def _verify_identity(self, session: AgentSession) -> Dict[str, Any]:
+        """Verify the caller's identity.
+        
+        Returns:
+            Dict containing verification status and customer info
+        """
+        context = {"verified": False, "customer_info": {}}
+        
+        try:
             await session.say(
-                "Please provide exactly 4 digits for your account number."
+                "For security purposes, could you please provide the last 4 digits of your account number?"
             )
-            return await _verify_identity(session)
-
-        # Check if the last 4 digits match the expected value
-        if account_last4 != "1234":
-            await session.say(
-                "The account number you provided doesn't match our records. Please try again."
-            )
-            return await _verify_identity(session)
-
-        identity = {
-            "account": f"XXXX{account_last4}",
-            "amount": "$1,234.56",
-            "due_date": "2025-06-30",
-        }
-
-        context.update(
-            {
+            
+            response = await session.listen()
+            account_last4 = response.strip()
+            
+            if not await self._validate_account_number(account_last4, session):
+                return context
+                
+            identity = {
+                "account": f"XXXX{account_last4}",
+                "amount": "$1,234.56",
+                "due_date": (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d"),
+            }
+            
+            context.update({
                 "verified": True,
                 "customer_info": identity,
                 "account_last4": account_last4,
-            }
-        )
-
-        await session.say(
-            f"Thank you for verifying your identity. I see you have an outstanding balance of {identity['amount']} on account ending in {account_last4}."
-        )
-
-    except Exception as e:
-        logger.error(f"Error during identity verification: {e}")
-        await session.say(
-            "I encountered an error while verifying your identity. Let's try again."
-        )
-
-    return context
-
-
-async def _discuss_payment(session: AgentSession, context: Dict):
-    """Payment discussion logic"""
-    if not context.get("verified"):
-        await session.say(
-            "I'll need to verify your identity before discussing payment options."
-        )
-        return False
-
-    try:
-        # Present payment options
-        payment_options = ai_parse_payment_discussion()
-        await session.say(payment_options)
-
-        # In a real implementation, we would process user input here
-        # For now, we'll simulate a payment plan selection
-        await asyncio.sleep(2.0)
-
-        # Simulate selecting a payment plan
-        await session.say(
-            "I'll help you set up a payment plan for your outstanding balance."
-        )
-        await asyncio.sleep(1.0)
-
-        # Confirm the payment plan
-        await session.say(
-            f"I've set up a 3-month payment plan for your balance of {context.get('customer_info', {}).get('amount', 'the amount')}. The first payment will be due on {context.get('customer_info', {}).get('due_date', 'the due date')}."
-        )
-
+            })
+            
+            await session.say(
+                f"Thank you for verifying your identity. I see you have an outstanding "
+                f"balance of {identity['amount']} on account ending in {account_last4}."
+            )
+            
+        except Exception as e:
+            logger.error(f"Identity verification failed: {e}")
+            await session.say("I encountered an error while verifying your identity. Let's try again.")
+            
+        return context
+    
+    async def _validate_account_number(self, account_last4: str, session: AgentSession) -> bool:
+        """Validate the provided account number."""
+        if not (account_last4.isdigit() and len(account_last4) == 4):
+            await session.say("Please provide exactly 4 digits for your account number.")
+            return False
+            
+        # In a real implementation, verify against your database
+        if account_last4 != "1234":  # Example validation
+            await session.say(
+                "The account number you provided doesn't match our records. Please try again."
+            )
+            return False
+            
         return True
-
-    except Exception as e:
-        logger.error(f"Error during payment discussion: {e}")
-        await session.say(
-            "I encountered an error while processing your request. Let's try again."
-        )
-        return False
-
-
-async def _handle_resolution(session: AgentSession, context: Dict):
-    """Final resolution handling"""
-    try:
-        # Get resolution details based on the conversation
-        resolution_details = {
-            "status": "completed",
-            "customer_verified": context.get("verified", False),
-            "account": context.get("customer_info", {}).get("account", "unknown"),
-            "timestamp": datetime.now().isoformat(),
-            "resolution": "payment_plan_created",
-            "payment_plan": {
-                "duration_months": 3,
-                "amount": context.get("customer_info", {}).get("amount", "unknown"),
-                "first_payment_due": context.get("customer_info", {}).get(
-                    "due_date", "unknown"
-                ),
-            },
-        }
-
-        # Generate confirmation message
-        response = ai_resolution_confirmation(str(resolution_details))
-        await session.say(response)
-
-        # Short delay before ending the call
-        await asyncio.sleep(1.5)
-
-        # Save the transcript before ending the call
-        await _save_transcript(session)
-
-        # End the conversation
-        await session.say("Thank you for calling Riverline Bank. Have a great day!")
-
-    except Exception as e:
-        logger.error(f"Error during resolution: {e}")
-        await session.say("I encountered an error while finalizing your request.")
-        await _save_transcript(session)
-        raise
-
-
-async def _save_transcript(session: AgentSession):
-    """Save conversation transcript using LiveKit's built-in functionality"""
-    try:
-        # Ensure transcripts directory exists
-        os.makedirs("transcripts", exist_ok=True)
-
-        # Generate timestamp for filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        transcript_path = f"transcripts/transcript_{timestamp}.json"
-
-        # Get the conversation history from the session
-        if not hasattr(session, "history"):
-            logger.warning("Session has no history attribute")
-            return
-
-        # Convert history to a serializable format
-        transcript_data = session.history.to_dict()
-
-        # Save to file
-        with open(transcript_path, "w") as f:
-            json.dump(transcript_data, f, indent=2)
-
-        logger.info(f"Transcript saved to {transcript_path}")
-
-    except Exception as e:
-        logger.error(f"Failed to save transcript: {e}", exc_info=True)
-        # Don't raise the exception to prevent workflow failure due to transcript saving issues
-        logger.debug("Transcript error details:", exc_info=True)
-
-
-async def _check_compliance(room: rtc.Room) -> bool:
-    """Check regional compliance regulations"""
-    # For now, we'll assume compliance is always true
-    # In a real implementation, you would check the room's metadata or participant's location
-    return True
-
-    # Example implementation if you have location data:
-    # location = room.participant.location  # This assumes the participant has a location attribute
-    # return location in COMPLIANCE_REGIONS
+    
+    async def _discuss_payment(self, session: AgentSession, context: Dict[str, Any]) -> bool:
+        """Discuss and process payment options with the customer."""
+        if not context.get("verified"):
+            await session.say("I'll need to verify your identity before discussing payment options.")
+            return False
+            
+        try:
+            payment_options = ai_parse_payment_discussion()
+            await session.say(payment_options)
+            
+            # Simulate payment processing
+            await asyncio.sleep(2.0)
+            await session.say("I'll help you set up a payment plan for your outstanding balance.")
+            await asyncio.sleep(1.0)
+            
+            customer_info = context.get("customer_info", {})
+            await session.say(
+                f"I've set up a 3-month payment plan for your balance of {customer_info.get('amount', 'the amount')}. "
+                f"The first payment will be due on {customer_info.get('due_date', 'the due date')}."
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Payment discussion failed: {e}")
+            await session.say("I encountered an error while processing your request. Let's try again.")
+            return False
+    
+    async def _handle_resolution(self, session: AgentSession, context: Dict[str, Any]) -> None:
+        """Handle the final resolution of the call."""
+        try:
+            resolution_details = {
+                "status": "completed",
+                "customer_verified": context.get("verified", False),
+                "account": context.get("customer_info", {}).get("account", "unknown"),
+                "timestamp": datetime.now().isoformat(),
+                "resolution": "payment_plan_created",
+                "payment_plan": {
+                    "duration_months": 3,
+                    "amount": context.get("customer_info", {}).get("amount", "unknown"),
+                    "first_payment_due": context.get("customer_info", {}).get("due_date", "unknown"),
+                },
+            }
+            
+            response = ai_resolution_confirmation(str(resolution_details))
+            await session.say(response)
+            await asyncio.sleep(1.5)
+            
+            await self._save_transcript(session)
+            await session.say("Thank you for calling Riverline Bank. Have a great day!")
+            
+        except Exception as e:
+            logger.error(f"Resolution handling failed: {e}")
+            await session.say("I encountered an error while finalizing your request.")
+            await self._save_transcript(session)
+            raise
+    
+    async def _save_transcript(self, session: AgentSession) -> None:
+        """Save the conversation transcript."""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            transcript_path = self.transcripts_dir / f"transcript_{timestamp}.json"
+            
+            if not hasattr(session, "history"):
+                logger.warning("Session has no history attribute")
+                return
+                
+            transcript_data = session.history.to_dict()
+            
+            with open(transcript_path, "w") as f:
+                json.dump(transcript_data, f, indent=2)
+                
+            logger.info(f"Transcript saved to {transcript_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save transcript: {e}", exc_info=True)
+    
+    async def _check_compliance(self, room: rtc.Room) -> bool:
+        """Check if the call complies with regional regulations."""
+        # In a real implementation, check room metadata or participant location
+        return True
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -364,7 +370,8 @@ async def entrypoint(ctx: agents.JobContext):
         session.ctx = ctx
 
         # Start the debt collection workflow in the background
-        asyncio.create_task(debt_collection_workflow(session))
+        agent = DebtCollectionAgent()
+        asyncio.create_task(agent.start_call_workflow(session))
 
     except Exception as e:
         logger.error(f"Entrypoint error: {e}")
