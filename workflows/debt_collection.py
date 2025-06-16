@@ -43,20 +43,20 @@ class DebtCollectionWorkflow:
                 )
                 return
 
-            await self._start_conversation()
+            await self.start_conversation()
 
             if not await self.verify_identity():
                 return
 
-            await self._discuss_payment()
-            await self._handle_resolution()
+            await self.discuss_payment()
+            await self.handle_resolution()
 
         except Exception as e:
             logger.error(f"Workflow error: {e}", exc_info=True)
             await self.session.say(ai_technical_issue_disclaimer)
             raise
 
-    async def _start_conversation(self) -> None:
+    async def start_conversation(self) -> None:
         """Start the conversation with compliance warnings and introduction."""
         await self.session.say(ai_compliance_warning)
         await self.session.say(
@@ -130,7 +130,7 @@ class DebtCollectionWorkflow:
         # against compliance rules
         return True
 
-    async def _discuss_payment(self) -> bool:
+    async def discuss_payment(self) -> bool:
         """Discuss payment options with the caller."""
         if not self.context.get("verified"):
             await self.session.say(
@@ -147,7 +147,7 @@ class DebtCollectionWorkflow:
             logger.error(f"Error discussing payment: {e}")
             return False
 
-    async def _handle_resolution(self) -> None:
+    async def handle_resolution(self) -> None:
         """Handle the resolution of the call."""
         try:
             resolution = ai_resolution_confirmation()
