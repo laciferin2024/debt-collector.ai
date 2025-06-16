@@ -204,6 +204,7 @@ except ImportError:
 
 # Configuration
 from config import (
+    OPENAI_MODEL,
     RECORDINGS_DIR,
 )
 
@@ -362,6 +363,6 @@ if __name__ == "__main__":
 
     if args.test_bot:
         # Run the automated testing + self-correcting loop (Challenge 2)
-        asyncio.run(self_correcting_test_loop(args.script))
+        asyncio.run(self_correcting_test_loop(args.script, model=OPENAI_MODEL))
     else:
         agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
