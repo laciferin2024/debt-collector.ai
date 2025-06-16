@@ -65,10 +65,12 @@ async def make_outbound_call(phone_number: str, room_name: str) -> None:
         SIP_KRISP_ENABLED,
         SIP_DEFAULT_PARTICIPANT_IDENTITY,
         SIP_DEFAULT_PARTICIPANT_NAME,
-        SIP_CALL_TIMEOUT
+        SIP_CALL_TIMEOUT,
     )
-    
-    logger.info(f"Initiating LiveKit SIP outbound call to {phone_number} for room {room_name}...")
+
+    logger.info(
+        f"Initiating LiveKit SIP outbound call to {phone_number} for room {room_name}..."
+    )
     livekit_api = api.LiveKitAPI()
     request = CreateSIPParticipantRequest(
         sip_trunk_id=SIP_TRUNK_ID,
@@ -77,7 +79,7 @@ async def make_outbound_call(phone_number: str, room_name: str) -> None:
         participant_identity=SIP_DEFAULT_PARTICIPANT_IDENTITY,
         participant_name=SIP_DEFAULT_PARTICIPANT_NAME,
         krisp_enabled=SIP_KRISP_ENABLED,
-        wait_until_answered=True
+        wait_until_answered=True,
     )
     try:
         participant = await livekit_api.sip.create_sip_participant(request)
@@ -88,7 +90,6 @@ async def make_outbound_call(phone_number: str, room_name: str) -> None:
         raise
     finally:
         await livekit_api.aclose()
-
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -160,7 +161,7 @@ async def entrypoint(ctx: agents.JobContext):
         except Exception as e:
             logger.error(f"Call failed: {e}")
             # Optionally, you might want to clean up or retry here
-            raise
+            # raise
 
         # Start the debt collection workflow in the background
         workflow = DebtCollectionWorkflow(session)
