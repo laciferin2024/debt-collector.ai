@@ -1,0 +1,25 @@
+[project]
+name = "debt-collector-ai"
+version = "0.1.0"
+description = "Debt Collection agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "deepgram-sdk>=4.3.1",
+    "livekit-agents[turn-detector]~=1.0",
+    "livekit-plugins-cartesia~=1.0",
+    "livekit-plugins-deepgram~=1.0",
+    "livekit-plugins-openai~=1.0",
+    "livekit-plugins-noise-cancellation~=0.2.0",
+    "livekit-plugins-silero~=1.1.1",
+    "python-dotenv>=1.1.0",
+    "twilio>=9.6.3",
+    "lambdaprompt>=0.6.1",
+]
+
+
+[tool.setuptools.packages.find]
+exclude = ["recordings*", "transcripts*", "tests*", "docs*", "prompts*"]
+
+[dependency-groups]
+dev = ["ipykernel>=6.29.5", "pip>=25.1.1"]
