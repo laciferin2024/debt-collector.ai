@@ -32,12 +32,12 @@ The Debt Collector AI project is designed to automate the process of debt collec
 
 To start the debt collection agent:
 ```bash
-python main.py console
+uv run main.py console
 ```
 
 For automated testing and self-correction:
 ```bash
-python main.py --test-bot
+uv run main.py --test-bot
 ```
 
 ## Development Notes
