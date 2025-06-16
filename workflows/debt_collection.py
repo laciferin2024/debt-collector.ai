@@ -4,8 +4,14 @@ import logging
 from datetime import datetime
 from typing import Dict, Any
 
-from livekit.agents import AgentSession
+from livekit.agents import (
+    AgentSession,
+    UserInputTranscribedEvent,
+    ConversationItemAddedEvent,
+)
 import asyncio
+
+from livekit.api import ChatMessage
 
 # Import prompts
 from prompts.debt_collection.prompts import (
@@ -33,6 +39,11 @@ class DebtCollectionWorkflow:
         }
 
         self.session.on("user_input_transcribed", self.on_user_input)
+        self.session.on(
+            "user_speech_transcribed", self.on_user_input
+        )  # FIXME: doesn't work its for custom emit -->p
+
+        self.session.on("conversation_item_added", self.on_conversation_item_added)
 
     async def run(self) -> None:
         """Execute the complete debt collection workflow."""
@@ -157,8 +168,18 @@ class DebtCollectionWorkflow:
             logger.error(f"Error handling resolution: {e}")
             raise
 
-    def on_user_input(self, event):
+    def on_user_input(self, event: UserInputTranscribedEvent):
         logger.debug("User input received: {}".format(event.transcript))
         if self.waiting_for_input:
             self.captured_input = event.transcript
             self.waiting_for_input = False
+
+    def on_conversation_item_added(self, event: ConversationItemAddedEvent):
+        logger.debug("Conversation item added: {}".format(event))
+        msg: ChatMessage = event.item
+
+        # capture user input if we are waiting for it
+        if self.waiting_for_input and msg.role == "user":
+            self.captured_input = msg.message
+            self.waiting_for_input = False
+            logger.debug(f"User input set: {self.captured_input}")
