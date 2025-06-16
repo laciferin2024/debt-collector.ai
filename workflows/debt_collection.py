@@ -92,7 +92,7 @@ class DebtCollectionWorkflow:
                 logger.debug("waiting for input")
                 await asyncio.sleep(1)
 
-            await asyncio.sleep(4)
+            await asyncio.sleep(3)
 
             # user_input = await self.session.generate_reply(
             #     user_input="1234",
